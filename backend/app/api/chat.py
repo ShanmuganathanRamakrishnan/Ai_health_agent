@@ -120,14 +120,50 @@ def chat(request: ChatRequest):
                 )
                 return ChatResponse(**response)
             
+            # Handle AMBIGUOUS status - ask for clarification
+            if context.get("status") == "AMBIGUOUS":
+                matching = context.get("matching_patients", [])
+                count = len(matching)
+                
+                # Structured clarification message
+                header = f"Multiple patients found ({count} matches)"
+                patient_lines = [f"• {p.name}, age {p.age}" for p in matching[:5]]
+                footer = "Please specify the full name or add more details."
+                
+                if count > 5:
+                    patient_lines.append(f"• ...and {count - 5} more")
+                
+                clarification = f"{header}\n\n" + "\n".join(patient_lines) + f"\n\n{footer}"
+                
+                elapsed_ms = round((time.time() - start_time) * 1000, 2)
+                response = build_response(
+                    answer=clarification,
+                    response_type=ResponseType.REFUSAL,
+                    evidence=["ambiguous_patient_reference"],
+                    timing_ms=elapsed_ms
+                )
+                print(f"[AMBIGUOUS] Returning clarification for {count} matches")
+                return ChatResponse(**response)
+            
+            # Handle NOT_FOUND status
+            if context.get("status") == "NOT_FOUND":
+                elapsed_ms = round((time.time() - start_time) * 1000, 2)
+                response = build_response(
+                    answer="No matching patient found. Please check the spelling or provide more details.",
+                    response_type=ResponseType.REFUSAL,
+                    evidence=get_refusal_evidence("PATIENT_NOT_FOUND"),
+                    timing_ms=elapsed_ms
+                )
+                return ChatResponse(**response)
+            
             patient = context.get("patient")
             history = context.get("history", [])
             intent = context.get("intent")
             
-            # Update context for future pronoun resolution
+            # Update context for future pronoun resolution (using patient_id)
             if patient:
                 update_context_from_patient(patient)
-                print(f"[CONTEXT] Stored active patient: {patient.name} (ID: {patient.patient_id})")
+                print(f"[CONTEXT] Stored active patient: id={patient.patient_id}, name={patient.name}")
         
         # Edge case: Missing required fields
         if patient is None or intent is None:

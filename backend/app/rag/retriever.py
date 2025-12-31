@@ -3,11 +3,12 @@ Retrieval logic for fetching relevant patient records.
 Deterministic, keyword-based intent detection and database lookup.
 """
 import re
-from typing import Optional
+from typing import Optional, Tuple, List
 
 from sqlalchemy.orm import Session
 
 from app.db.models import Patient, PatientHistory
+from app.utils.context_manager import get_context
 
 
 # -------------------------------
@@ -86,46 +87,65 @@ def _extract_name_candidates(query: str) -> list[str]:
     return candidates
 
 
-def _find_patient_by_name(query: str, db_session: Session) -> Optional[Patient]:
+def _find_patients_by_name(query: str, db_session: Session) -> List[Patient]:
     """
-    Find patient by name match (case-insensitive).
-    Tries full name match first, then partial first/last name.
-    Returns first match for deterministic behavior.
+    Find ALL patients matching name in query (for ambiguity detection).
+    Returns list of all matching patients.
     """
     candidates = _extract_name_candidates(query)
     
     if not candidates:
-        return None
+        return []
+    
+    all_matches = []
+    seen_ids = set()
     
     # Try each candidate
     for candidate in candidates:
         # Try exact full name match first
-        patient = db_session.query(Patient).filter(
+        patients = db_session.query(Patient).filter(
             Patient.name.ilike(candidate)
-        ).first()
-        if patient:
-            return patient
+        ).all()
+        for p in patients:
+            if p.patient_id not in seen_ids:
+                all_matches.append(p)
+                seen_ids.add(p.patient_id)
+        
+        if all_matches:
+            continue  # Found exact matches, skip partial
         
         # Try partial match (first or last name)
-        patient = db_session.query(Patient).filter(
-            Patient.name.ilike(f"{candidate} %")  # First name
-        ).first()
-        if patient:
-            return patient
+        patients = db_session.query(Patient).filter(
+            Patient.name.ilike(f"{candidate} %")
+        ).all()
+        for p in patients:
+            if p.patient_id not in seen_ids:
+                all_matches.append(p)
+                seen_ids.add(p.patient_id)
         
-        patient = db_session.query(Patient).filter(
-            Patient.name.ilike(f"% {candidate}")  # Last name
-        ).first()
-        if patient:
-            return patient
+        patients = db_session.query(Patient).filter(
+            Patient.name.ilike(f"% {candidate}")
+        ).all()
+        for p in patients:
+            if p.patient_id not in seen_ids:
+                all_matches.append(p)
+                seen_ids.add(p.patient_id)
     
-    return None
+    return all_matches
 
 
-def _identify_patient(query: str, db_session: Session) -> Optional[Patient]:
+def _identify_patient(query: str, db_session: Session) -> Tuple[Optional[Patient], str]:
     """
     Identify patient from query by ID or name.
+    Returns (patient, status) tuple for ambiguity handling.
+    
+    Status values:
+        - "FOUND": Unique patient found
+        - "AMBIGUOUS": Multiple patients match
+        - "NOT_FOUND": No patient found
     """
+    context = get_context()
+    
     # Try ID first (strict patterns only)
     patient_id = _extract_patient_id(query)
     if patient_id is not None:
@@ -133,10 +153,33 @@ def _identify_patient(query: str, db_session: Session) -> Optional[Patient]:
             Patient.patient_id == patient_id
         ).first()
         if patient:
-            return patient
+            # Update context with this patient
+            context.set_active_patient(
+                patient.patient_id,
+                patient.name,
+                patient.gender
+            )
+            return patient, "FOUND"
     
-    # Fall back to name search
-    return _find_patient_by_name(query, db_session)
+    # Fall back to name search with ambiguity detection
+    patients = _find_patients_by_name(query, db_session)
+    
+    if len(patients) == 1:
+        patient = patients[0]
+        context.set_active_patient(
+            patient.patient_id,
+            patient.name,
+            patient.gender
+        )
+        print(f"[RETRIEVER] Found unique patient: id={patient.patient_id}, name={patient.name}")
+        return patient, "FOUND"
+    
+    elif len(patients) > 1:
+        names = [f"{p.name} (ID:{p.patient_id})" for p in patients]
+        print(f"[RETRIEVER] Ambiguous: {len(patients)} patients match: {names}")
+        return None, "AMBIGUOUS"
+    
+    return None, "NOT_FOUND"
 
 
 def _detect_intent(query: str) -> str:
@@ -216,16 +259,40 @@ def retrieve_context(query: str, db_session: Session) -> Optional[dict]:
         db_session: SQLAlchemy session.
         
     Returns:
-        Dictionary with patient, history, and intent.
+        Dictionary with patient, history, intent, and status.
         None if no patient is found.
+        
+    Status values in return dict:
+        - "FOUND": Unique patient identified
+        - "AMBIGUOUS": Multiple patients match query
+        - "NOT_FOUND": No patient found
     """
     if not query or not query.strip():
         return None
     
-    # Step 1: Identify patient
-    patient = _identify_patient(query, db_session)
+    # Step 1: Identify patient with ambiguity detection
+    patient, status = _identify_patient(query, db_session)
+    
+    # Handle ambiguous case - return with status for chat.py to handle
+    if status == "AMBIGUOUS":
+        # Get matching patients for disambiguation message
+        patients = _find_patients_by_name(query, db_session)
+        return {
+            "patient": None,
+            "history": [],
+            "intent": None,
+            "status": "AMBIGUOUS",
+            "matching_patients": patients
+        }
+    
     if patient is None:
-        return None
+        return {
+            "patient": None,
+            "history": [],
+            "intent": None,
+            "status": "NOT_FOUND",
+            "matching_patients": []
+        }
     
     # Step 2: Detect intent
     intent = _detect_intent(query)
@@ -234,17 +301,16 @@ def retrieve_context(query: str, db_session: Session) -> Optional[dict]:
     history = []
     
     if intent == "HISTORY_SUMMARY":
-        # Fetch recent visit history
         history = _fetch_history(patient.patient_id, db_session, limit=5)
     elif intent == "CONDITIONS":
-        # CONDITIONS: only primary_condition from patient, no history needed
         history = []
     else:
-        # BASIC_INFO: patient demographics only, no history
         history = []
     
     return {
         "patient": patient,
         "history": history,
         "intent": intent,
+        "status": "FOUND",
+        "matching_patients": []
     }

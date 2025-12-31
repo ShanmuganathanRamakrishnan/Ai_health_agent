@@ -1,9 +1,9 @@
 """
 Reference Resolution Module.
-Resolves patient references from queries including pronouns and possessives.
-Includes gender-aware pronoun resolution.
+Resolves patient references using patient_id as primary identifier.
+Includes gender-aware pronoun resolution and ambiguity detection.
 """
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 from sqlalchemy.orm import Session
 
@@ -23,42 +23,34 @@ PRONOUN_GENDER_MAP = {
 }
 
 
-def _find_patient_by_name(name: str, db: Session) -> Optional[Patient]:
+def _find_patients_by_name(name: str, db: Session) -> List[Patient]:
     """
-    Find a patient by name (case-insensitive).
-    Tries full name match, then first name, then last name.
+    Find ALL patients matching a name (case-insensitive).
+    Returns list for ambiguity detection.
     """
     if not name:
-        return None
+        return []
     
     name_lower = name.lower().strip()
     
-    # Try exact full name match
-    patient = db.query(Patient).filter(
+    # Try exact full name match first
+    patients = db.query(Patient).filter(
+        Patient.name.ilike(name_lower)
+    ).all()
+    
+    if patients:
+        return patients
+    
+    # Try partial match (contains)
+    patients = db.query(Patient).filter(
         Patient.name.ilike(f"%{name_lower}%")
-    ).first()
+    ).all()
     
-    if patient:
-        return patient
-    
-    # Try first name match
-    patient = db.query(Patient).filter(
-        Patient.name.ilike(f"{name_lower} %")
-    ).first()
-    
-    if patient:
-        return patient
-    
-    # Try last name match
-    patient = db.query(Patient).filter(
-        Patient.name.ilike(f"% {name_lower}")
-    ).first()
-    
-    return patient
+    return patients
 
 
 def _find_patient_by_id(patient_id: int, db: Session) -> Optional[Patient]:
-    """Find a patient by ID."""
+    """Find a patient by ID. This is the PRIMARY lookup method."""
     return db.query(Patient).filter(
         Patient.patient_id == patient_id
     ).first()
@@ -67,21 +59,12 @@ def _find_patient_by_id(patient_id: int, db: Session) -> Optional[Patient]:
 def _check_gender_match(pronoun_gender: str, patient_gender: Optional[str]) -> bool:
     """
     Check if pronoun gender matches patient gender.
-    
-    Args:
-        pronoun_gender: "male" or "female" from pronoun detection
-        patient_gender: Patient's gender from database
-        
-    Returns:
-        True if genders match, False otherwise
     """
     if not patient_gender:
-        # If patient gender is unknown, allow match
         return True
     
     patient_gender_lower = patient_gender.lower()
     
-    # Normalize gender strings
     if pronoun_gender == "male":
         return patient_gender_lower in ("male", "m", "man")
     elif pronoun_gender == "female":
@@ -95,73 +78,122 @@ def resolve_patient_reference(
     db: Session
 ) -> Tuple[Optional[Patient], str]:
     """
-    Resolve patient reference from query with gender-aware pronoun resolution.
+    Resolve patient reference using patient_id as source of truth.
     
     Priority:
-    1. Possessive name (sarah's → sarah)
-    2. Pronouns (he/she/her/his) → last active patient IF gender matches
-    3. Return None if no resolution possible or gender mismatch
+    1. Pronouns → use patient_id from context (NO re-search)
+    2. Possessive name → search DB, detect ambiguity
+    3. Return None if no resolution possible
     
-    Args:
-        query: The user query
-        db: Database session
-        
     Returns:
         Tuple of (Patient or None, resolution_method)
         
     Resolution methods:
+        - "PRONOUN": Resolved via pronoun using patient_id from context
         - "POSSESSIVE": Resolved via possessive name
-        - "PRONOUN": Resolved via pronoun with matching gender
         - "GENDER_MISMATCH": Pronoun found but gender doesn't match
+        - "NO_CONTEXT": Pronoun used but no patient in context
+        - "AMBIGUOUS": Multiple patients found with same name
         - "NONE": No resolution possible
     """
     context = get_context()
-    normalized = normalize_query(query)
     
-    # Strategy 1: Check for possessive names first
-    possessive_name = extract_possessive_name(query)
-    if possessive_name:
-        patient = _find_patient_by_name(possessive_name, db)
-        if patient:
-            # Update context with this patient
-            context.set_active_patient(
-                patient.patient_id,
-                patient.name,
-                patient.gender,
-                query_type=None  # Will be set by chat endpoint
-            )
-            return patient, "POSSESSIVE"
-    
-    # Strategy 2: Check for pronouns with gender validation
+    # Strategy 1: Check for pronouns FIRST - use patient_id directly
     pronoun_gender = contains_pronoun(query)
     if pronoun_gender:
-        # Try to resolve from context
         if context.has_active_patient():
+            # Use patient_id from context - DO NOT re-search by name
             patient_id = context.get_active_patient_id()
             patient = _find_patient_by_id(patient_id, db)
             
             if patient:
                 # Check gender compatibility
                 if _check_gender_match(pronoun_gender, patient.gender):
+                    print(f"[REFERENCE] Pronoun '{pronoun_gender}' resolved to patient_id={patient_id} ({patient.name})")
                     return patient, "PRONOUN"
                 else:
-                    # Gender mismatch - return special code for safe refusal
                     print(f"[REFERENCE] Gender mismatch: pronoun={pronoun_gender}, "
-                          f"patient={patient.name} (gender={patient.gender})")
+                          f"patient_id={patient_id} ({patient.name}, gender={patient.gender})")
                     return None, "GENDER_MISMATCH"
         else:
             # No active patient but pronoun used
+            print("[REFERENCE] Pronoun found but no patient in context")
             return None, "NO_CONTEXT"
     
+    # Strategy 2: Check for possessive names with ambiguity detection
+    possessive_name = extract_possessive_name(query)
+    if possessive_name:
+        patients = _find_patients_by_name(possessive_name, db)
+        
+        if len(patients) == 1:
+            # Unique match - update context with patient_id
+            patient = patients[0]
+            context.set_active_patient(
+                patient.patient_id,
+                patient.name,
+                patient.gender,
+                query_type=None
+            )
+            print(f"[REFERENCE] Possessive '{possessive_name}' resolved to patient_id={patient.patient_id}")
+            return patient, "POSSESSIVE"
+        
+        elif len(patients) > 1:
+            # Ambiguous - multiple patients found
+            names = [p.name for p in patients]
+            print(f"[REFERENCE] Ambiguous: '{possessive_name}' matches {len(patients)} patients: {names}")
+            return None, "AMBIGUOUS"
+        
+        # No match found
+        return None, "NONE"
+    
     # Strategy 3: No pronoun or possessive found
-    # Let the standard retriever handle explicit names
     return None, "NONE"
+
+
+def resolve_explicit_patient_name(
+    name: str,
+    db: Session
+) -> Tuple[Optional[Patient], str]:
+    """
+    Resolve an explicit patient name with ambiguity detection.
+    Called by retriever when no pronoun reference is found.
+    
+    Returns:
+        Tuple of (Patient or None, resolution_method)
+        
+    Resolution methods:
+        - "FOUND": Unique patient found
+        - "AMBIGUOUS": Multiple patients with same name
+        - "NOT_FOUND": No patient found
+    """
+    context = get_context()
+    
+    patients = _find_patients_by_name(name, db)
+    
+    if len(patients) == 1:
+        patient = patients[0]
+        # Update context with patient_id
+        context.set_active_patient(
+            patient.patient_id,
+            patient.name,
+            patient.gender,
+            query_type=None
+        )
+        print(f"[REFERENCE] Name '{name}' resolved to patient_id={patient.patient_id}")
+        return patient, "FOUND"
+    
+    elif len(patients) > 1:
+        names = [f"{p.name} (ID:{p.patient_id})" for p in patients]
+        print(f"[REFERENCE] Ambiguous: '{name}' matches {len(patients)} patients: {names}")
+        return None, "AMBIGUOUS"
+    
+    return None, "NOT_FOUND"
 
 
 def update_context_from_patient(patient: Patient) -> None:
     """
     Update the conversation context with a successfully identified patient.
-    Called after retriever successfully finds a patient.
+    Uses patient_id as the primary identifier.
     """
     if patient:
         context = get_context()
@@ -170,3 +202,21 @@ def update_context_from_patient(patient: Patient) -> None:
             patient.name,
             patient.gender
         )
+        print(f"[CONTEXT] Set active patient: id={patient.patient_id}, name={patient.name}")
+
+
+def get_ambiguity_response(name: str, db: Session) -> str:
+    """
+    Generate a clarification response for ambiguous patient names.
+    """
+    patients = _find_patients_by_name(name, db)
+    
+    if len(patients) <= 1:
+        return ""
+    
+    patient_list = ", ".join([f"{p.name} (age {p.age})" for p in patients[:5]])
+    
+    if len(patients) > 5:
+        return f"I found {len(patients)} patients matching '{name}'. Could you be more specific? Some matches: {patient_list}..."
+    else:
+        return f"I found {len(patients)} patients matching '{name}': {patient_list}. Could you specify which one?"

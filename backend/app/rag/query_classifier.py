@@ -283,47 +283,36 @@ def format_factual_response(patient, field: str) -> str:
 
 def format_severity_response(patient, history_signals: dict) -> str:
     """
-    Format a severity assessment response using available data.
-    
-    Args:
-        patient: Patient object with risk_level
-        history_signals: Dict with worsening/improving/neutral counts
-        
-    Returns:
-        Grounded severity assessment string
+    Format a concise severity assessment response (2-3 sentences max).
     """
     name = patient.name or "The patient"
     risk = patient.risk_level or "unknown"
     
-    # Build response based on available data
-    response_parts = []
-    response_parts.append(f"Based on available records for {name}:")
+    # Build concise response
+    parts = []
     
-    # Risk level assessment
-    if risk and risk.lower() != "unknown":
-        risk_lower = risk.lower()
-        if risk_lower == "high":
-            response_parts.append(f"- The recorded risk level is {risk}, indicating a condition that requires close monitoring.")
-        elif risk_lower == "medium":
-            response_parts.append(f"- The recorded risk level is {risk}, suggesting moderate concern.")
-        elif risk_lower == "low":
-            response_parts.append(f"- The recorded risk level is {risk}, indicating the condition is currently manageable.")
-        else:
-            response_parts.append(f"- The recorded risk level is {risk}.")
+    # Risk level (1 sentence)
+    risk_lower = (risk or "").lower()
+    if risk_lower == "high":
+        parts.append(f"{name} has a High risk level, indicating close monitoring is needed.")
+    elif risk_lower == "medium":
+        parts.append(f"{name} has a Medium risk level, suggesting moderate concern.")
+    elif risk_lower == "low":
+        parts.append(f"{name} has a Low risk level; the condition is currently manageable.")
     else:
-        response_parts.append("- No formal severity score is recorded in the database.")
+        parts.append(f"No formal risk level is recorded for {name}.")
     
-    # History signals if available
+    # History trend (1 sentence if relevant)
     worsening = history_signals.get("worsening", 0)
     improving = history_signals.get("improving", 0)
     
     if worsening > improving:
-        response_parts.append(f"- Recent visit notes indicate some concerning patterns ({worsening} clinical signals detected).")
+        parts.append(f"Recent records show {worsening} concerning indicator(s).")
     elif improving > worsening:
-        response_parts.append(f"- Recent visit notes indicate positive trends ({improving} improvement signals).")
-    elif worsening == 0 and improving == 0:
-        response_parts.append("- Visit history does not contain explicit severity indicators.")
+        parts.append(f"Recent records show {improving} positive indicator(s).")
     
-    response_parts.append("\nNote: This is based on recorded data only. Please consult a healthcare provider for clinical assessment.")
+    # Disclaimer (1 sentence)
+    parts.append("Consult a healthcare provider for clinical assessment.")
     
-    return "\n".join(response_parts)
+    return " ".join(parts)
+
