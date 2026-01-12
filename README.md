@@ -1,187 +1,155 @@
 # AI Patient Chatbot
 
-**Trust-Focused Clinical Decision Support (Prototype)**
+**A Safe, Explainable Clinical Decision Support System**
 
-A local-first, explainable question-answering system for patient health records. Built to demonstrate how AI can assist healthcare workflows without sacrificing reliability, safety, or transparency.
+A proof-of-concept chatbot that answers questions about patient health records—without hallucinating, diagnosing, or giving medical advice.
 
-> This is a portfolio/educational project using synthetic data only. It is not intended for real clinical use.
+> ⚠️ **Educational/Portfolio Project** — Uses synthetic data only. Not for real clinical use.
 
 ---
 
-## Project Overview
+## What This Project Is
 
-This system answers questions about patient health records using a combination of direct database lookups and local LLM reasoning. The key principle is **database-first**: factual queries are answered directly from structured data, and the LLM is only invoked when summarization or reasoning is required.
+Healthcare AI has a trust problem. Large language models can hallucinate clinical facts, invent diagnoses, and confidently give dangerous advice. This project demonstrates a different approach:
 
-**Design priorities:**
-- Reliability over creativity
-- Transparency over brevity
-- Refusal over guessing
-- Local execution (no external API calls)
+**A chatbot that knows what it knows—and what it doesn't.**
+
+Every answer is grounded in actual patient data. When the system doesn't have enough information, it says so. When asked for medical advice, it refuses. When a question is ambiguous, it asks for clarification.
+
+---
+
+## How It Works
+
+```
+User Query → Classification → Retrieval → Guarded Reasoning → Response
+                                                ↓
+                              [Confidence Level + Evidence Sources]
+```
+
+1. **Query Classification** — Each question is categorized (FACTUAL, SUMMARY, COMPLEX, SYNTHETIC, SEVERITY, REFUSAL)
+2. **Database-First Retrieval** — Patient data is fetched from structured records, never hallucinated
+3. **Guarded Reasoning** — The LLM synthesizes information but cannot invent facts
+4. **Confidence + Evidence** — Every response includes a confidence level and explicit data sources
 
 ---
 
 ## Key Features
 
-- **Query classification**: Routes queries to optimal handlers (FACTUAL, SUMMARY, COMPLEX, SEVERITY, REFUSAL)
-- **Database-first answers**: Simple lookups bypass the LLM entirely, eliminating hallucination risk
-- **Weighted retrieval**: Trend queries use recency + clinical signal scoring to prioritize relevant history
-- **Conversation memory**: Short-term context for pronouns and follow-ups (30-minute expiry)
-- **Patient ID anchoring**: Once identified, a patient is tracked by ID—not name—to prevent ambiguity
-- **Confidence + evidence**: Every response includes a confidence level (High/Medium/Low) and explicit data sources
-- **Safe refusals**: Medical advice requests, ambiguous queries, and gender mismatches are handled gracefully
-- **Fully local**: Runs entirely offline using SQLite + local Mistral 7B (GGUF)
+### 🎯 Intelligent Query Routing
+- **FACTUAL** — Direct database lookups (age, diagnosis, risk level) — no LLM needed
+- **SUMMARY** — Patient overviews with caching
+- **COMPLEX** — Trend analysis with weighted retrieval
+- **SYNTHETIC** — Cross-signal pattern analysis across history, vitals, and labs
+
+### 💬 Pronoun-Aware Conversations
+- "Tell me about Emily Smith" → "How old is she?" → "Has her condition changed?"
+- Patient context persists across follow-up questions
+- Gender-aware pronoun resolution
+
+### 📊 Confidence & Evidence Attribution
+Every response includes:
+- **Confidence Level**: High / Medium / Low
+- **Evidence Sources**: Exact data fields used (e.g., `patients.primary_condition`, `patient_history (weighted)`)
+
+### 🛡️ Safety Guardrails
+- Refuses medical advice requests
+- Blocks ambiguous patient references
+- Filters forbidden clinical language
+- Falls back safely when data is insufficient
 
 ---
 
-## Architecture Overview
+## What This System Does NOT Do
 
-```
-┌─────────────────┐      ┌──────────────────────────────────────────┐
-│  React Frontend │ ←──→ │             FastAPI Backend              │
-│  (port 3000)    │      │                                          │
-└─────────────────┘      │  ┌──────────────────────────────────┐   │
-                         │  │  Query Classifier                 │   │
-                         │  │  (FACTUAL / SUMMARY / COMPLEX /  │   │
-                         │  │   SEVERITY / REFUSAL)            │   │
-                         │  └──────────────────────────────────┘   │
-                         │                  │                       │
-                         │     ┌────────────┴────────────┐         │
-                         │     ▼                         ▼         │
-                         │  ┌─────────┐           ┌───────────┐    │
-                         │  │ SQLite  │           │ Mistral   │    │
-                         │  │ (source │           │ 7B (GGUF) │    │
-                         │  │  of     │           │ via       │    │
-                         │  │  truth) │           │ llama.cpp │    │
-                         │  └─────────┘           └───────────┘    │
-                         └──────────────────────────────────────────┘
-```
-
-**When the LLM is used:**
-- Generating patient summaries (cache miss)
-- Analyzing trends over time (COMPLEX queries)
-- Answering questions requiring reasoning
-
-**When the LLM is NOT used:**
-- Age, diagnosis, gender, risk level (direct DB read)
-- Cached summaries
-- Refusals and clarifications
+| ❌ It Does NOT | Why |
+|----------------|-----|
+| Diagnose conditions | It reports what's in the database, not clinical conclusions |
+| Recommend treatments | Medical advice requires a licensed professional |
+| Infer beyond data | If it's not documented, it's not stated |
+| Guess when uncertain | It asks for clarification or refuses |
 
 ---
 
-## How the System Thinks
+## Tech Stack
 
-This system takes a different approach than typical chatbots:
-
-1. **The database is the source of truth.** Patient demographics, conditions, and risk levels come directly from structured data. The LLM never invents this information.
-
-2. **The LLM is a reasoning tool, not a knowledge source.** It is only used to synthesize information that already exists in the database—never to generate clinical facts.
-
-3. **Every answer is grounded.** Responses include evidence attribution (e.g., "patients.primary_condition" or "patient_history (weighted)") so users can trace where information came from.
-
-4. **Errors are handled conservatively.** If a query is ambiguous, the system asks for clarification. If a pronoun doesn't match, it refuses rather than guessing. If medical advice is requested, it declines.
-
-This design reduces hallucination risk and makes the system more appropriate for healthcare-adjacent use cases where trust matters.
+| Component | Technology |
+|-----------|------------|
+| Backend | FastAPI (Python 3.10+) |
+| Frontend | React + Vite |
+| Database | SQLite |
+| LLM | Mistral 7B (GGUF) via llama-cpp-python |
+| Execution | Fully local — no external API calls |
 
 ---
 
-## Running the Project Locally
+## Running Locally
 
 ### Prerequisites
 - Python 3.10+
 - Node.js 18+
-- A Mistral 7B GGUF model file (e.g., `mistral-7b-instruct-v0.2.Q4_K_M.gguf`)
+- Mistral 7B GGUF model file
 
-### Backend Setup
+### Quick Start
 
 ```bash
+# Backend
 cd backend
-
-# Create virtual environment
 python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Mac/Linux
-
-# Install dependencies
+venv\Scripts\activate  # Windows (or: source venv/bin/activate)
 pip install -r requirements.txt
-
-# Run the server
+python -m etl.etl_pipeline  # Generate synthetic data
 uvicorn app.main:app --reload
-```
 
-### Database Setup
-
-```bash
-cd backend
-python -m etl.etl_pipeline
-```
-
-This generates ~160 synthetic patients with multi-year visit histories.
-
-### Frontend Setup
-
-```bash
+# Frontend
 cd frontend
 npm install
 npm run dev
 ```
 
-Open http://localhost:3000 in your browser.
-
-### GPU Acceleration (Optional)
-
-If you have an NVIDIA GPU with CUDA, llama-cpp-python can use GPU acceleration. This significantly improves inference speed for LLM-based queries.
+Open http://localhost:3000
 
 ---
 
 ## Example Queries
 
-| Query | Type | Response |
+| Query | Type | Behavior |
 |-------|------|----------|
-| "What is Emily Smith diagnosed with?" | FACTUAL | "Emily Smith is diagnosed with Hypertension." |
-| "Tell me about David Williams" | SUMMARY | 3-4 sentence summary of patient history |
-| "How old is she?" | PRONOUN | Resolves to last mentioned patient |
-| "Has his condition gotten worse?" | COMPLEX | Trend analysis using weighted history |
+| "What is Emily Smith diagnosed with?" | FACTUAL | Direct DB lookup, High confidence |
+| "Tell me about David Williams" | SUMMARY | Cached summary, no LLM if cached |
+| "How has her condition changed?" | COMPLEX | Trend analysis with weighted retrieval |
+| "Looking at everything together, what patterns stand out?" | SYNTHETIC | Cross-signal analysis, Medium confidence |
 | "Tell me about John" | AMBIGUOUS | "Multiple patients found (5 matches)..." |
 | "What medicine should he take?" | REFUSAL | "I cannot provide medical advice..." |
 
 ---
 
-## Safety and Limitations
+## Performance
 
-This project is a prototype with intentional constraints:
-
-- **Synthetic data only**: All patient records are generated, not real.
-- **No medical advice**: The system explicitly refuses treatment or medication questions.
-- **No diagnosis**: It reports what is in the database, not clinical conclusions.
-- **Conservative by design**: The system asks for clarification rather than guessing.
-- **Single-session memory**: Context expires after 30 minutes and does not persist.
-
-These limitations are features, not bugs. They reflect the principle that clinical decision support should be reliable and transparent, even at the cost of flexibility.
-
----
-
-## Performance Notes
-
-| Query Type | Typical Latency | Notes |
-|------------|-----------------|-------|
-| FACTUAL | 4-10ms | Direct DB read, no LLM |
-| SUMMARY (cached) | 5-15ms | In-memory cache hit |
+| Query Type | Latency | Notes |
+|------------|---------|-------|
+| FACTUAL | 4-10ms | Direct DB, no LLM |
+| SUMMARY (cached) | 5-15ms | In-memory cache |
 | SUMMARY (miss) | 15-40s | LLM generation (CPU) |
 | COMPLEX | 8-15s | Weighted retrieval + LLM |
+| SYNTHETIC | 20-60s | Cross-signal synthesis (CPU) |
 
 GPU acceleration reduces LLM inference time by 5-10x.
 
 ---
 
-## Future Improvements
+## Project Status
 
-These are potential enhancements, not current features:
+| Phase | Status |
+|-------|--------|
+| Core RAG Pipeline | ✅ Complete |
+| Query Classification | ✅ Complete |
+| Weighted Retrieval | ✅ Complete |
+| Conversation Memory | ✅ Complete |
+| Vitals & Labs Integration | ✅ Complete |
+| Synthetic Reasoning (Phase 5) | ✅ Complete |
+| Safety Guardrails | ✅ Complete |
 
-- UI-assisted patient disambiguation (clickable suggestions)
-- Semantic name matching for typos and nicknames
-- Larger synthetic datasets for stress testing
-- Persistent storage for conversation memory (with explicit consent)
-- Embedding-based retrieval for unstructured notes
+**Evaluation:** SAFE TO PROCEED
 
 ---
 
@@ -193,4 +161,4 @@ This project is for educational and portfolio purposes only. It should not be us
 
 ## License
 
-MIT License. See LICENSE file for details.
+MIT License
