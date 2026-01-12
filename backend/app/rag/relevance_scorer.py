@@ -200,3 +200,68 @@ def get_weighted_history(
     ]
     
     return records, details
+
+
+def fetch_vitals_labs_for_patient(patient_id: int, db_session) -> dict:
+    """
+    Fetch vitals and labs for a patient's encounters.
+    READ-ONLY visibility function for Phase 3.5 validation.
+    
+    Args:
+        patient_id: Patient ID
+        db_session: Database session
+        
+    Returns:
+        Dict with vitals_count, labs_count, encounter_ids, and data
+    """
+    from app.db.models import Encounter, Vital, Lab
+    
+    # Get all encounters for patient
+    encounters = db_session.query(Encounter).filter(
+        Encounter.patient_id == patient_id
+    ).all()
+    
+    encounter_ids = [e.encounter_id for e in encounters]
+    
+    if not encounter_ids:
+        print(f"[PHASE 3.5] No encounters found for patient_id={patient_id}")
+        return {
+            "vitals_count": 0,
+            "labs_count": 0,
+            "encounter_ids": [],
+            "vitals": [],
+            "labs": [],
+            "abnormal_vitals_count": 0,
+            "abnormal_labs_count": 0,
+        }
+    
+    # Fetch vitals for these encounters
+    vitals = db_session.query(Vital).filter(
+        Vital.encounter_id.in_(encounter_ids)
+    ).all()
+    
+    # Fetch labs for these encounters
+    labs = db_session.query(Lab).filter(
+        Lab.encounter_id.in_(encounter_ids)
+    ).all()
+    
+    # Count abnormals
+    abnormal_vitals = sum(1 for v in vitals if v.is_abnormal)
+    abnormal_labs = sum(1 for l in labs if l.is_abnormal)
+    
+    # Structured logging for Phase 3.5
+    print(f"[PHASE 3.5] Retrieved {len(vitals)} vitals, {len(labs)} labs for patient_id={patient_id}")
+    print(f"[PHASE 3.5]   Encounters: {len(encounter_ids)}")
+    print(f"[PHASE 3.5]   Abnormal vitals: {abnormal_vitals}, Abnormal labs: {abnormal_labs}")
+    print(f"[PHASE 3.5] Prompt unchanged — vitals/labs excluded from LLM context")
+    
+    return {
+        "vitals_count": len(vitals),
+        "labs_count": len(labs),
+        "encounter_ids": encounter_ids,
+        "vitals": vitals,
+        "labs": labs,
+        "abnormal_vitals_count": abnormal_vitals,
+        "abnormal_labs_count": abnormal_labs,
+    }
+

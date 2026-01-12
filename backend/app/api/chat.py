@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app.db.database import SessionLocal
 from app.rag.retriever import retrieve_context, _fetch_history, fetch_weighted_history
+from app.rag.relevance_scorer import fetch_vitals_labs_for_patient
 from app.rag.prompt_builder import build_prompt
 from app.rag.summary_cache import get_or_generate_summary
 from app.rag.query_classifier import classify_query, format_factual_response, format_severity_response
@@ -228,6 +229,9 @@ def chat(request: ChatRequest):
             elapsed_ms = round((time.time() - start_time) * 1000, 2)
             print(f"[SEVERITY_ASSESSMENT] Patient {patient.patient_id}: risk={patient.risk_level}, signals={history_signals}")
             
+            # Phase 3.5: Visibility logging for vitals/labs (read-only, not in prompt)
+            vitals_labs_info = fetch_vitals_labs_for_patient(patient.patient_id, db)
+            
             # Confidence: Medium if we have data, Low if refusal
             has_data = patient.risk_level or len(weighted_history) > 0
             response = build_response(
@@ -268,6 +272,9 @@ def chat(request: ChatRequest):
         
         # Fetch weighted history (recency + clinical signals)
         full_history, scoring_details = fetch_weighted_history(patient.patient_id, db, limit=5)
+        
+        # Phase 3.5: Visibility logging for vitals/labs (read-only, not in prompt)
+        vitals_labs_info = fetch_vitals_labs_for_patient(patient.patient_id, db)
         
         # Log weighted selection
         if scoring_details:
