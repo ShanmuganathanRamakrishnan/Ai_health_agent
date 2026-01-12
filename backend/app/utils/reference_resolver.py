@@ -83,7 +83,8 @@ def resolve_patient_reference(
     Priority:
     1. Pronouns → use patient_id from context (NO re-search)
     2. Possessive name → search DB, detect ambiguity
-    3. Return None if no resolution possible
+    3. Context fallback → use stored patient_id for follow-up queries
+    4. Return None if no resolution possible
     
     Returns:
         Tuple of (Patient or None, resolution_method)
@@ -91,6 +92,7 @@ def resolve_patient_reference(
     Resolution methods:
         - "PRONOUN": Resolved via pronoun using patient_id from context
         - "POSSESSIVE": Resolved via possessive name
+        - "CONTEXT_FALLBACK": No pronoun/name but used stored context
         - "GENDER_MISMATCH": Pronoun found but gender doesn't match
         - "NO_CONTEXT": Pronoun used but no patient in context
         - "AMBIGUOUS": Multiple patients found with same name
@@ -146,7 +148,17 @@ def resolve_patient_reference(
         # No match found
         return None, "NONE"
     
-    # Strategy 3: No pronoun or possessive found
+    # Strategy 3: CONTEXT FALLBACK - No pronoun or name, but context exists
+    # This enables follow-up queries like "Looking at everything together..."
+    if context.has_active_patient():
+        patient_id = context.get_active_patient_id()
+        patient = _find_patient_by_id(patient_id, db)
+        
+        if patient:
+            print(f"[REFERENCE] Context fallback: using patient_id={patient_id} ({patient.name})")
+            return patient, "CONTEXT_FALLBACK"
+    
+    # Strategy 4: No pronoun or possessive found, no context
     return None, "NONE"
 
 

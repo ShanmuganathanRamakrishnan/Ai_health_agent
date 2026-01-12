@@ -136,17 +136,39 @@ def _find_patients_by_name(query: str, db_session: Session) -> List[Patient]:
 
 def _identify_patient(query: str, db_session: Session) -> Tuple[Optional[Patient], str]:
     """
-    Identify patient from query by ID or name.
+    Identify patient from query using reference resolution, ID, or name.
     Returns (patient, status) tuple for ambiguity handling.
+    
+    Priority:
+    1. Pronoun/context resolution (via resolve_patient_reference)
+    2. Explicit ID patterns
+    3. Name search with ambiguity detection
     
     Status values:
         - "FOUND": Unique patient found
+        - "PRONOUN": Resolved via pronoun
+        - "CONTEXT_FALLBACK": Resolved via context fallback
         - "AMBIGUOUS": Multiple patients match
         - "NOT_FOUND": No patient found
     """
+    from app.utils.reference_resolver import resolve_patient_reference
+    
     context = get_context()
     
-    # Try ID first (strict patterns only)
+    # Step 1: Try reference resolution (pronouns, possessives, context fallback)
+    patient, resolution_method = resolve_patient_reference(query, db_session)
+    
+    if patient:
+        # Successfully resolved via reference resolver
+        if resolution_method in ("PRONOUN", "CONTEXT_FALLBACK", "POSSESSIVE"):
+            return patient, resolution_method
+        return patient, "FOUND"
+    
+    # Step 2: Check for ambiguous resolution
+    if resolution_method == "AMBIGUOUS":
+        return None, "AMBIGUOUS"
+    
+    # Step 3: Try ID (strict patterns only)
     patient_id = _extract_patient_id(query)
     if patient_id is not None:
         patient = db_session.query(Patient).filter(
@@ -161,7 +183,7 @@ def _identify_patient(query: str, db_session: Session) -> Tuple[Optional[Patient
             )
             return patient, "FOUND"
     
-    # Fall back to name search with ambiguity detection
+    # Step 4: Fall back to name search with ambiguity detection
     patients = _find_patients_by_name(query, db_session)
     
     if len(patients) == 1:

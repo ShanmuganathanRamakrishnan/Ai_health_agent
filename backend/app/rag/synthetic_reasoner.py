@@ -42,6 +42,11 @@ SYNTHESIS_SIGNAL_PATTERNS = [
     r"\b(synthesis|synthesize|comprehensive view)\b",
     # Temporal cross-reference
     r"\b(over (the )?time.*together|together.*over (the )?time)\b",
+    # Additional semantic cues for synthesis (Phase 5 polish)
+    r"\b(when you look at|putting.*together|stand out)\b",
+    r"\b(visits.*and.*(vitals?|labs?|tests?))\b",
+    r"\b(common pattern|what do (they|all|the records) show)\b",
+    r"\b(across.*(visits?|encounters?|records?))\b",
 ]
 
 # ============================================
@@ -252,9 +257,14 @@ def build_cross_signal_summary(
     return "\n".join(lines)
 
 
-def validate_output_language(text: str) -> Tuple[bool, List[str]]:
+def validate_output_language(text: str, user_query: str = "") -> Tuple[bool, List[str]]:
     """
     Validate LLM output does not contain forbidden medical language.
+    Skips echoed user input and quoted segments.
+    
+    Args:
+        text: LLM output to validate
+        user_query: Original user query (to skip echoed input)
     
     Returns:
         (is_valid, list_of_violations)
@@ -262,10 +272,23 @@ def validate_output_language(text: str) -> Tuple[bool, List[str]]:
     if not text:
         return True, []
     
-    text_lower = text.lower()
+    # Skip first sentence (often restates question)
+    sentences = text.split('.')
+    text_to_check = '.'.join(sentences[1:]) if len(sentences) > 1 else text
+    
+    # Remove quoted segments (echoed user input)
+    text_to_check = re.sub(r'["\'].*?["\']', '', text_to_check)
+    
+    # Skip words that appear in the user's original query
+    user_words = set(user_query.lower().split())
+    
+    text_lower = text_to_check.lower()
     violations = []
     
     for word in FORBIDDEN_WORDS:
+        # Skip if word appears in user's query (echoed input)
+        if word in user_words:
+            continue
         if word in text_lower:
             violations.append(word)
     

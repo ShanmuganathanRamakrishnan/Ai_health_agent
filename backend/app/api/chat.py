@@ -369,7 +369,7 @@ def chat(request: ChatRequest):
         # PHASE 5: Validate output language for SYNTHETIC reasoning
         # ============================================
         if reasoning_level == REASONING_SYNTHETIC:
-            is_valid, violations = validate_output_language(llm_response)
+            is_valid, violations = validate_output_language(llm_response, user_query=request.query)
             if not is_valid:
                 # MANDATORY FALLBACK for forbidden words
                 print(f"[PHASE 5] Output contained forbidden words: {violations}")
