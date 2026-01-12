@@ -286,8 +286,14 @@ def chat(request: ChatRequest):
         trend_result = analyze_trend(full_history)
         trend_context = format_trend_context(trend_result)
         
-        # Build prompt with trend analysis appended
-        base_prompt = build_prompt(patient, full_history, intent, request.query)
+        # Build prompt with trend analysis and vitals/labs (Phase 4)
+        base_prompt = build_prompt(
+            patient, 
+            full_history, 
+            intent, 
+            request.query,
+            vitals_labs_info=vitals_labs_info  # Phase 4: Include vitals/labs for COMPLEX
+        )
         
         if not base_prompt or not base_prompt.strip():
             elapsed_ms = round((time.time() - start_time) * 1000, 2)

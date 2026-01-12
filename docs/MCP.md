@@ -4,9 +4,9 @@
 
 | Field | Value |
 |-------|-------|
-| Current Phase | Phase 3.5: Vitals & Labs Visibility |
-| Feature in Progress | None (Phase 3.5 complete) |
-| Last Completed Milestone | Phase 3.5 Validation |
+| Current Phase | Phase 4: Vitals/Labs Reasoning for COMPLEX |
+| Feature in Progress | None (Phase 4 complete) |
+| Last Completed Milestone | Phase 4 Validation |
 
 ---
 
@@ -23,8 +23,6 @@
 - Safe refusals for medical advice
 - React frontend with clinical decision-support UI
 
-**What did NOT change:** N/A (initial implementation)
-
 **Validation:** ✅ PASS
 
 ---
@@ -33,14 +31,10 @@
 **What was added:**
 - EHR-style schema: Encounter, Vital, Lab, Medication tables
 - Encounter ETL: 5-15 encounters per patient, 1616 total records
-- Realistic data: dates, providers, specialties, dispositions
 
-**What did NOT change:**
-- Retrieval logic
-- Prompt builder
-- Chat behavior
+**What did NOT change:** Retrieval logic, prompt builder, chat behavior
 
-**Validation:** ✅ PASS (7-category validation)
+**Validation:** ✅ PASS
 
 ---
 
@@ -49,13 +43,8 @@
 - Vitals generation: 1-3 per encounter, 3192 total (48% abnormal)
 - Labs generation: 0-4 per encounter, 2604 total (20% abnormal)
 - 18 lab test types with LOINC codes and reference ranges
-- Realistic clinical values with noise and abnormal flags
 
-**What did NOT change:**
-- Retrieval logic
-- Prompt builder
-- Chat behavior
-- Query classification
+**What did NOT change:** Retrieval logic, prompt builder, chat behavior
 
 **Validation:** ✅ PASS
 
@@ -63,15 +52,32 @@
 
 ### Phase 3.5: Vitals & Labs Visibility
 **What was added:**
-- `fetch_vitals_labs_for_patient()` function in relevance_scorer.py
-- Visibility calls in SEVERITY_ASSESSMENT and COMPLEX handlers
-- Structured Phase 3.5 logging with encounter/vitals/labs counts
+- `fetch_vitals_labs_for_patient()` function for read-only retrieval
+- Visibility logging in SEVERITY_ASSESSMENT and COMPLEX handlers
+
+**What did NOT change:** LLM prompts, chat responses, confidence levels
+
+**Validation:** ✅ PASS
+
+---
+
+### Phase 4: Vitals/Labs Reasoning for COMPLEX
+**What was added:**
+- `_format_vitals_labs_summary()` in prompt_builder.py
+- Vitals/Labs summary section in COMPLEX prompts only
+- Pattern-based descriptions (no raw values, no diagnoses)
+- Language constraints: neutral, descriptive, no medical advice
 
 **What did NOT change:**
-- LLM prompts (vitals/labs excluded)
-- Chat responses (identical)
-- Confidence levels
-- Evidence attribution
+- SEVERITY logic (unchanged)
+- FACTUAL routing (unchanged)
+- SUMMARY caching (unchanged)
+- Confidence calculation (unchanged)
+- Evidence attribution (unchanged)
+
+**Before/After:**
+- Before: "Her condition has shown an intermittent pattern..."
+- After: "The patient's condition has shown an intermittent pattern with both improvements and exacerbations..." (informed by vitals/labs)
 
 **Validation:** ✅ PASS
 
@@ -79,16 +85,14 @@
 
 ## Open Risks / Known Limitations
 
-1. **Vitals/labs not in prompts** - Data retrieved but not used in reasoning yet
+1. **SEVERITY still excludes vitals/labs** - By design for conservative reasoning
 2. **Summary cache invalidation** - Cache persists after ETL re-runs
-3. **Large LLM context** - COMPLEX/SUMMARY queries with dense histories take 15-40s
-4. **Weight/height not patient-consistent** - Randomly generated per reading
+3. **LLM latency** - COMPLEX queries take 15-40s on CPU
 
 ---
 
 ## Next Planned Step
 
-**Phase 4: Vitals/Labs in Prompts** (tentative)
-- Include structured vitals/labs summaries in SEVERITY prompts
-- Preserve current behavior for FACTUAL/SUMMARY
-- Carefully scope to avoid prompt size explosion
+**Phase 5: Enhanced Evidence Attribution** (tentative)
+- Include vitals/labs counts in evidence array for COMPLEX
+- Add trend direction to evidence metadata
