@@ -131,7 +131,8 @@ def build_prompt(
     history: list,
     intent: str,
     user_query: str,
-    vitals_labs_info: dict = None
+    vitals_labs_info: dict = None,
+    cross_signal_summary: str = None  # Phase 5: SYNTHETIC reasoning
 ) -> str:
     """
     Build a structured prompt for the LLM.
@@ -142,6 +143,7 @@ def build_prompt(
         intent: BASIC_INFO, HISTORY_SUMMARY, or CONDITIONS.
         user_query: Original user question.
         vitals_labs_info: Optional dict from fetch_vitals_labs_for_patient() (COMPLEX only)
+        cross_signal_summary: Optional Phase 5 cross-signal summary (SYNTHETIC only)
         
     Returns:
         Complete prompt string ready for LLM.
@@ -161,9 +163,8 @@ def build_prompt(
         if history_text:
             sections.append(history_text)
     
-    # 4. Vitals & Labs summary (COMPLEX queries only)
-    # This is Phase 4: include descriptive patterns, no raw values
-    if intent == "HISTORY_SUMMARY" and vitals_labs_info:
+    # 4. Vitals & Labs summary (COMPLEX queries only - Phase 4)
+    if intent == "HISTORY_SUMMARY" and vitals_labs_info and not cross_signal_summary:
         vitals_labs_text = _format_vitals_labs_summary(vitals_labs_info)
         if vitals_labs_text:
             sections.append(vitals_labs_text)
@@ -171,7 +172,13 @@ def build_prompt(
         else:
             print(f"[PHASE 4] No vitals/labs data to include")
     
-    # 5. User question
+    # 5. Cross-signal summary (SYNTHETIC queries only - Phase 5)
+    # This replaces Phase 4 vitals/labs summary when SYNTHETIC is activated
+    if cross_signal_summary:
+        sections.append(cross_signal_summary)
+        print(f"[PHASE 5] Cross-signal summary INCLUDED in SYNTHETIC prompt")
+    
+    # 6. User question
     sections.append(f"Question: {user_query}")
     
     # Join with double newlines for clarity

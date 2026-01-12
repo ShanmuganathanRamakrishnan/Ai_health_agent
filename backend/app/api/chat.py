@@ -286,13 +286,46 @@ def chat(request: ChatRequest):
         trend_result = analyze_trend(full_history)
         trend_context = format_trend_context(trend_result)
         
-        # Build prompt with trend analysis and vitals/labs (Phase 4)
+        # ============================================
+        # PHASE 5: Check for SYNTHETIC reasoning activation
+        # Layers on top of Phase 4 ANALYTICAL (COMPLEX)
+        # ============================================
+        from app.rag.synthetic_reasoner import (
+            should_activate_synthetic_reasoning,
+            build_cross_signal_summary,
+            validate_output_language,
+            FALLBACK_RESPONSE,
+            REASONING_SYNTHETIC,
+            REASONING_ANALYTICAL,
+        )
+        
+        activate_synthetic, activation_reason = should_activate_synthetic_reasoning(
+            query_type="COMPLEX",  # Already in COMPLEX handler
+            query=request.query,
+            history_records=full_history,
+            vitals_labs_info=vitals_labs_info,
+            patient_is_valid=(patient is not None),
+        )
+        
+        # Determine reasoning level
+        if activate_synthetic:
+            reasoning_level = REASONING_SYNTHETIC
+            cross_signal_summary = build_cross_signal_summary(
+                full_history, vitals_labs_info, trend_result
+            )
+        else:
+            reasoning_level = REASONING_ANALYTICAL
+            cross_signal_summary = None
+            print(f"[PHASE 5] Synthetic NOT activated: {activation_reason}")
+        
+        # Build prompt with appropriate level
         base_prompt = build_prompt(
             patient, 
             full_history, 
             intent, 
             request.query,
-            vitals_labs_info=vitals_labs_info  # Phase 4: Include vitals/labs for COMPLEX
+            vitals_labs_info=vitals_labs_info if reasoning_level == REASONING_ANALYTICAL else None,
+            cross_signal_summary=cross_signal_summary
         )
         
         if not base_prompt or not base_prompt.strip():
@@ -308,7 +341,7 @@ def chat(request: ChatRequest):
         # Append trend analysis to prompt
         enhanced_prompt = f"{base_prompt}\n\n{trend_context}"
         
-        print(f"[COMPLEX] Patient: {patient.name}, Trend: {trend_result.get('pattern', 'UNKNOWN')}")
+        print(f"[COMPLEX] Patient: {patient.name}, Trend: {trend_result.get('pattern', 'UNKNOWN')}, Reasoning: {reasoning_level}")
         
         try:
             llm_response = generate(enhanced_prompt)
@@ -332,15 +365,38 @@ def chat(request: ChatRequest):
             )
             return ChatResponse(**response)
         
-        elapsed_ms = round((time.time() - start_time) * 1000, 2)
-        print(f"[COMPLEX] Intent={intent}, pattern={trend_result.get('pattern')}: {elapsed_ms}ms")
+        # ============================================
+        # PHASE 5: Validate output language for SYNTHETIC reasoning
+        # ============================================
+        if reasoning_level == REASONING_SYNTHETIC:
+            is_valid, violations = validate_output_language(llm_response)
+            if not is_valid:
+                # MANDATORY FALLBACK for forbidden words
+                print(f"[PHASE 5] Output contained forbidden words: {violations}")
+                llm_response = FALLBACK_RESPONSE
         
-        response = build_response(
-            answer=llm_response,
-            response_type=ResponseType.COMPLEX,
-            evidence=get_complex_evidence(),
-            timing_ms=elapsed_ms
-        )
+        elapsed_ms = round((time.time() - start_time) * 1000, 2)
+        print(f"[COMPLEX] Intent={intent}, pattern={trend_result.get('pattern')}, reasoning={reasoning_level}: {elapsed_ms}ms")
+        
+        # Confidence policy: SYNTHETIC = Medium or Low only
+        if reasoning_level == REASONING_SYNTHETIC:
+            # Force Medium confidence for SYNTHETIC responses
+            response = build_response(
+                answer=llm_response,
+                response_type=ResponseType.COMPLEX,
+                evidence=["patient_history (recent visits)", "vitals (pattern summary)", "labs (pattern summary)"],
+                timing_ms=elapsed_ms
+            )
+            # Override confidence to Medium for SYNTHETIC
+            response["confidence"] = "Medium"
+        else:
+            response = build_response(
+                answer=llm_response,
+                response_type=ResponseType.COMPLEX,
+                evidence=get_complex_evidence(),
+                timing_ms=elapsed_ms
+            )
+        
         return ChatResponse(**response)
     
     finally:
