@@ -35,18 +35,18 @@ User Query → Classification → Retrieval → Guarded Reasoning → Response
 
 ## Key Features
 
-### 🎯 Intelligent Query Routing
+###  Intelligent Query Routing
 - **FACTUAL** — Direct database lookups (age, diagnosis, risk level) — no LLM needed
 - **SUMMARY** — Patient overviews with caching
 - **COMPLEX** — Trend analysis with weighted retrieval
 - **SYNTHETIC** — Cross-signal pattern analysis across history, vitals, and labs
 
-### 💬 Pronoun-Aware Conversations
+###  Pronoun-Aware Conversations
 - "Tell me about Emily Smith" → "How old is she?" → "Has her condition changed?"
 - Patient context persists across follow-up questions
 - Gender-aware pronoun resolution
 
-### 📊 Confidence & Evidence Attribution
+###  Confidence & Evidence Attribution
 Every response includes:
 - **Confidence Level**: High / Medium / Low
 - **Evidence Sources**: Exact data fields used (e.g., `patients.primary_condition`, `patient_history (weighted)`)
