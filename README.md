@@ -4,7 +4,7 @@
 
 A proof-of-concept chatbot that answers questions about patient health records—without hallucinating, diagnosing, or giving medical advice.
 
-> ⚠️ **Educational/Portfolio Project** — Uses synthetic data only. Not for real clinical use.
+> **Educational/Portfolio Project** — Uses synthetic data only. Not for real clinical use.
 
 ---
 
@@ -51,7 +51,7 @@ Every response includes:
 - **Confidence Level**: High / Medium / Low
 - **Evidence Sources**: Exact data fields used (e.g., `patients.primary_condition`, `patient_history (weighted)`)
 
-### 🛡️ Safety Guardrails
+###  Safety Guardrails
 - Refuses medical advice requests
 - Blocks ambiguous patient references
 - Filters forbidden clinical language
@@ -61,7 +61,7 @@ Every response includes:
 
 ## What This System Does NOT Do
 
-| ❌ It Does NOT | Why |
+| It Does NOT | Why |
 |----------------|-----|
 | Diagnose conditions | It reports what's in the database, not clinical conclusions |
 | Recommend treatments | Medical advice requires a licensed professional |
@@ -141,13 +141,13 @@ GPU acceleration reduces LLM inference time by 5-10x.
 
 | Phase | Status |
 |-------|--------|
-| Core RAG Pipeline | ✅ Complete |
-| Query Classification | ✅ Complete |
-| Weighted Retrieval | ✅ Complete |
-| Conversation Memory | ✅ Complete |
-| Vitals & Labs Integration | ✅ Complete |
-| Synthetic Reasoning (Phase 5) | ✅ Complete |
-| Safety Guardrails | ✅ Complete |
+| Core RAG Pipeline |  Complete |
+| Query Classification |  Complete |
+| Weighted Retrieval |  Complete |
+| Conversation Memory | Complete |
+| Vitals & Labs Integration |  Complete |
+| Synthetic Reasoning (Phase 5) |  Complete |
+| Safety Guardrails | Complete |
 
 **Evaluation:** SAFE TO PROCEED
 
